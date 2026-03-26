@@ -229,7 +229,6 @@ def test_cog_roundtrip(synth):
         assert da_back.dims == ("time", "latitude", "longitude")
         assert len(da_back["time"]) == 20
 
-
 @pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
                     reason="matplotlib not installed")
 def test_plot_timeseries_smoke(synth):

@@ -183,7 +183,9 @@ def to_cog(
             for i, desc in enumerate(band_descriptions, start=1):
                 tmp.update_tags(i, date=desc)
                 tmp.set_band_description(i, desc)
-            tmp.build_overviews(overview_levels, Resampling.average)
+            valid_levels = [level for level in overview_levels if min(height, width) // level >= 2]
+            if valid_levels:
+                tmp.build_overviews(valid_levels, Resampling.average)
             tmp.update_tags(ns="rio_overview", resampling="average")
         with mem.open() as tmp:
             rio_shutil.copy(tmp, str(path), driver="GTiff", copy_src_overviews=True, **{
@@ -291,16 +293,16 @@ def series_to_cog(
     paths = {}
 
     for var in variables:
-        s     = df[var].dropna()
+        series = df[var].dropna()
         # Broadcast scalar → (T, Y, X)
         data  = np.stack(
-            [np.full((len(lats), len(lons)), v, dtype=np.float32) for v in s.values],
+            [np.full((len(lats), len(lons)), val, dtype=np.float32) for val in series.values],
             axis=0,
         )
         da = xr.DataArray(
             data,
             dims=["time", lat_dim, lon_dim],
-            coords={"time": s.index.values, lat_dim: lats, lon_dim: lons},
+            coords={"time": series.index.values, lat_dim: lats, lon_dim: lons},
             name=var,
         )
         out_path = output_dir / f"{prefix}_{var}.tif"
@@ -348,11 +350,11 @@ def read_cog(path: Union[str, Path]) -> "xr.DataArray":
         except Exception:
             dates.append(pd.Timestamp(f"1900-01-{i+1:02d}"))
 
-    H, W = data.shape[1], data.shape[2]
+    height, width = data.shape[1], data.shape[2]
     left, top = transform * (0, 0)
-    right, bottom = transform * (W, H)
-    lats = np.linspace(top, bottom, H)
-    lons = np.linspace(left, right, W)
+    right, bottom = transform * (width, height)
+    lats = np.linspace(top, bottom, height)
+    lons = np.linspace(left, right, width)
 
     da = xr.DataArray(
         data,

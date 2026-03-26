@@ -246,7 +246,7 @@ def plot_seasonal_cycle(df, title="Seasonal Cycle of Drought Indices", figsize=(
     fig.tight_layout()
     return fig
 
-def plot_anomaly_bars(df, column="CDI", freq="Y",
+def plot_anomaly_bars(df, column="CDI", freq="YE",
                      title="Annual Mean CDI Anomaly", figsize=(12, 4)):
     """
     Coloured anomaly bar chart — standard in IPCC and WMO drought reports.
@@ -255,14 +255,14 @@ def plot_anomaly_bars(df, column="CDI", freq="Y",
     ----------
     df     : pd.DataFrame with DatetimeIndex.
     column : column to plot (default 'CDI').
-    freq   : 'Y' annual | 'Q' seasonal | 'M' monthly.
+    freq   : 'YE' annual | 'QE' seasonal | 'ME' monthly.
     """
     _require_mpl()
     rs = df[column].resample(freq).mean().dropna()
     colours = ["#C0392B" if v < 0 else "#2980B9" for v in rs.values]
     fig, ax = plt.subplots(figsize=figsize, facecolor="white")
     _climate_style(ax)
-    width = {"Y": 300, "Q": 60, "M": 20}.get(freq, 50)
+    width = {"YE": 300, "QE": 60, "ME": 20}.get(freq, 50)
     ax.bar(rs.index, rs.values, width=width, color=colours, edgecolor="none", zorder=3)
     ax.axhline(0,    color="#333", linewidth=0.9, zorder=4)
     ax.axhline(-1.0, color="#E74C3C", linewidth=0.7, linestyle=":", alpha=0.7)
