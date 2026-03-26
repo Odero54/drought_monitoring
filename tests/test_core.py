@@ -11,8 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import numpy as np
 import pandas as pd
 import pytest
-# import tempfile
-# from pathlib import Path
+import tempfile
+from pathlib import Path
 
 from drought_monitoring.core import (
     compute_pdi, compute_tdi, compute_vdi, compute_cdi, compute_all,
@@ -43,11 +43,9 @@ def test_default_weights():
 def test_rl_ip_deficit_all_below():
     """If all months in the window are below LTM, RL_IP = window."""
     idx = pd.date_range("2010-01", periods=12, freq="MS")
-    # Make raw values always 1, LTM always 10 → condition always True
     raw = pd.Series(np.ones(12), index=idx)
     ltm = pd.Series(np.full(12, 10.0), index=idx)
     rl  = _rl_ip(raw, ltm, window=3, deficit=True)
-    # After warmup: every window of 3 has 3 below-LTM months
     assert (rl.dropna() == 3).all()
 
 
@@ -71,14 +69,11 @@ def test_rl_ip_excess_all_above():
 
 def test_rl_ip_partial():
     """Mixed signal: RL_IP counts only months satisfying condition."""
-    # Pattern: below, above, below → deficit count in window of 3 = 2
     idx = pd.date_range("2010-01", periods=6, freq="MS")
     raw = pd.Series([1, 10, 1, 10, 1, 10], index=idx)
     ltm = pd.Series([5,  5, 5,  5, 5,  5], index=idx)
     rl  = _rl_ip(raw, ltm, window=3, deficit=True)
-    # Window ending at month 3 (idx 2): [1,10,1] → 2 below-5
     assert rl.iloc[2] == 2.0
-    # Window ending at month 4 (idx 3): [10,1,10] → 1 below-5
     assert rl.iloc[3] == 1.0
 
 
@@ -92,8 +87,6 @@ def test_rl_ip_nan_warmup():
     assert np.isnan(rl.iloc[1])
     assert not np.isnan(rl.iloc[2])
 
-
-# ── Formula: product not sum ─────────────────────────────────────────────────
 
 def test_formula_is_product(synth):
     """DI = (mu_IP / mu_LTM) * sqrt(RL_IP / RL_LTM) — verify manually."""
@@ -188,84 +181,87 @@ def test_all_uses_default_weights(synth):
     assert diff < 1e-9
 
 
-# def test_gee_period_too_short():
-#     from drought_cdi.gee import _validate_period
-#     with pytest.raises(ValueError, match="at least 20"):
-#         _validate_period(2010, 2015)
+def test_gee_period_too_short():
+    from drought_monitoring.gee import _validate_period
+    with pytest.raises(ValueError, match="at least 20"):
+        _validate_period(2010, 2015)
 
-# def test_gee_period_too_long():
-#     from drought_monitoring.gee import _validate_period
-#     with pytest.raises(ValueError, match="at most 30"):
-#         _validate_period(1990, 2025)
+def test_gee_period_too_long():
+    from drought_monitoring.gee import _validate_period
+    with pytest.raises(ValueError, match="at most 30"):
+        _validate_period(1990, 2025)
 
-# def test_gee_period_valid():
-#     from drought_cdi.gee import _validate_period
-#     _validate_period(2000, 2020)
-#     _validate_period(2000, 2029)
-
-
-# def test_cog_roundtrip(synth):
-#     try:
-#         import xarray as xr
-#     except ImportError:
-#         pytest.skip("rasterio / xarray not installed")
-
-#     from drought_monitoring.io import to_cog, read_cog
-
-#     p, t, n = synth
-#     df = compute_all(p, t, n)
-#     times = df["CDI"].dropna().index[:20]
-#     lats  = np.linspace(7.0, 3.5, 4)
-#     lons  = np.linspace(38.0, 42.5, 5)
-#     data  = np.random.default_rng(0).standard_normal((20, 4, 5)).astype(np.float32)
-
-#     da = xr.DataArray(
-#         data,
-#         dims=["time", "latitude", "longitude"],
-#         coords={"time": times, "latitude": lats, "longitude": lons},
-#         name="CDI",
-#     )
-
-#     with tempfile.TemporaryDirectory() as tmpdir:
-#         out_path = Path(tmpdir) / "test_CDI.tif"
-#         written  = to_cog(da, out_path)
-#         assert written.exists()
-#         assert written.stat().st_size > 0
-
-#         da_back = read_cog(written)
-#         assert da_back.dims == ("time", "latitude", "longitude")
-#         assert len(da_back["time"]) == 20
+def test_gee_period_valid():
+    from drought_monitoring.gee import _validate_period
+    _validate_period(2000, 2020)
+    _validate_period(2000, 2029)
 
 
-# @pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
-#                     reason="matplotlib not installed")
-# def test_plot_timeseries_smoke(synth):
-#     import matplotlib; matplotlib.use("Agg")
-#     import matplotlib.pyplot as plt
-#     from drought_cdi.plot import plot_timeseries
-#     p, t, n = synth
-#     fig = plot_timeseries(compute_all(p, t, n), title="Test")
-#     assert fig is not None
-#     plt.close(fig)
+def test_cog_roundtrip(synth):
+    try:
+        import xarray as xr
+    except ImportError:
+        pytest.skip("rasterio / xarray not installed")
 
-# @pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
-#                     reason="matplotlib not installed")
-# def test_plot_anomaly_bars_smoke(synth):
-#     import matplotlib; matplotlib.use("Agg")
-#     import matplotlib.pyplot as plt
-#     from drought_cdi.plot import plot_anomaly_bars
-#     p, t, n = synth
-#     fig = plot_anomaly_bars(compute_all(p, t, n))
-#     assert fig is not None
-#     plt.close(fig)
+    from drought_monitoring.io import to_cog, read_cog
 
-# @pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
-#                     reason="matplotlib not installed")
-# def test_plot_seasonal_cycle_smoke(synth):
-#     import matplotlib; matplotlib.use("Agg")
-#     import matplotlib.pyplot as plt
-#     from drought_cdi.plot import plot_seasonal_cycle
-#     p, t, n = synth
-#     fig = plot_seasonal_cycle(compute_all(p, t, n))
-#     assert fig is not None
-#     plt.close(fig)
+    p, t, n = synth
+    df = compute_all(p, t, n)
+    times = df["CDI"].dropna().index[:20]
+    lats  = np.linspace(7.0, 3.5, 4)
+    lons  = np.linspace(38.0, 42.5, 5)
+    data  = np.random.default_rng(0).standard_normal((20, 4, 5)).astype(np.float32)
+
+    da = xr.DataArray(
+        data,
+        dims=["time", "latitude", "longitude"],
+        coords={"time": times, "latitude": lats, "longitude": lons},
+        name="CDI",
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = Path(tmpdir) / "test_CDI.tif"
+        written  = to_cog(da, out_path)
+        assert written.exists()
+        assert written.stat().st_size > 0
+
+        da_back = read_cog(written)
+        assert da_back.dims == ("time", "latitude", "longitude")
+        assert len(da_back["time"]) == 20
+
+
+@pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
+                    reason="matplotlib not installed")
+def test_plot_timeseries_smoke(synth):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from drought_monitoring.plot import plot_timeseries
+    p, t, n = synth
+    fig = plot_timeseries(compute_all(p, t, n), title="Test")
+    assert fig is not None
+    plt.close(fig)
+
+@pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
+                    reason="matplotlib not installed")
+def test_plot_anomaly_bars_smoke(synth):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from drought_monitoring.plot import plot_anomaly_bars
+    p, t, n = synth
+    fig = plot_anomaly_bars(compute_all(p, t, n))
+    assert fig is not None
+    plt.close(fig)
+
+@pytest.mark.skipif(not __import__("importlib").util.find_spec("matplotlib"),
+                    reason="matplotlib not installed")
+def test_plot_seasonal_cycle_smoke(synth):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from drought_monitoring.plot import plot_seasonal_cycle
+    p, t, n = synth
+    fig = plot_seasonal_cycle(compute_all(p, t, n))
+    assert fig is not None
+    plt.close(fig)
