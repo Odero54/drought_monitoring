@@ -11,11 +11,12 @@ writing outputs as **Cloud Optimized GeoTIFFs**, and producing
 
 ```
 drought_cdi/
-├── core.py     CDI mathematics on pd.Series
-├── spatial.py  pixel-wise computation on xr.DataArray
-├── gee.py      GEE authentication + ERA5-Land / MODIS data fetching
-├── io.py       Cloud Optimized GeoTIFF (COG) export and import
-├── plot.py     publication-quality climate science figures
+└── drought_monitoring/
+    └── core.py     CDI mathematics on pd.Series
+    └── spatial.py  pixel-wise computation on xr.DataArray
+    └── gee.py      GEE authentication + ERA5-Land / MODIS data fetching
+    └── io.py       Cloud Optimized GeoTIFF (COG) export and import
+    └── plot.py     publication-quality climate science figures
 └── tests/
     └── test_core.py
 pyproject.toml
