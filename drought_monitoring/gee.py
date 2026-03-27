@@ -84,7 +84,7 @@ def authenticate(project: Optional[str] = None, quiet: bool = False) -> None:
 
     Example
     -------
-    >>> from drought_cdi.gee import authenticate
+    >>> from drought_monitoring.gee import authenticate
     >>> authenticate(project="my-project")
     ✓ GEE authenticated and initialised successfully.
     """
@@ -193,7 +193,7 @@ def _collection_to_series(
             scale=scale,
             maxPixels=1e10,
             bestEffort=True,
-        ).get(band)
+        ).get(band, None)
         return ee.Feature(None, {
             "yyyymm": img.date().format("YYYY-MM"),
             "value":  val,
@@ -336,7 +336,7 @@ def fetch_modis_ndvi(
     aoi_geom   = _parse_aoi(aoi)
     start, end = _date_range(start_year, end_year)
 
-    raw = (
+    base = (
         ee.ImageCollection(_MODIS_COLLECTION)
         .filterDate(start, end)
         .filterBounds(aoi_geom)
@@ -347,30 +347,52 @@ def fetch_modis_ndvi(
         return (
             img.normalizedDifference(["sur_refl_b02", "sur_refl_b01"])
             .rename("NDVI")
-            .copyProperties(img, ["system:time_start"])
+            .set("system:time_start", img.get("system:time_start"))
         )
 
-    ndvi_col = raw.map(_add_ndvi)
+    ndvi_col = base.map(_add_ndvi)
 
-    # Monthly composites
-    years  = ee.List.sequence(start_year, end_year)
-    months = ee.List.sequence(1, 12)
-    ym_pairs = years.map(lambda y: months.map(lambda m: ee.List([y, m]))).flatten()
+    # Fully-masked placeholder ensures reduceRegion always returns {"NDVI": null}
+    # instead of {} when a monthly composite is empty.
+    _empty = (
+        ee.Image.constant(0).rename("NDVI").updateMask(ee.Image.constant(0))
+    )
 
-    def _monthly_mean(ym):
-        ym   = ee.List(ym)
-        y, m = ee.Number(ym.get(0)).int(), ee.Number(ym.get(1)).int()
-        return (
-            ndvi_col
-            .filter(ee.Filter.calendarRange(y, y, "year"))
-            .filter(ee.Filter.calendarRange(m, m, "month"))
-            .mean()
-            .set("system:time_start", ee.Date.fromYMD(y, m, 1).millis())
-            .set("year", y).set("month", m)
-        )
+    # Batch one year at a time; build features in Python to avoid server-side
+    # map failing on empty monthly composites
+    records = []
+    for year in range(start_year, end_year + 1):
+        features = []
+        for month in range(1, 13):
+            filtered = (
+                ndvi_col
+                .filter(ee.Filter.calendarRange(year, year, "year"))
+                .filter(ee.Filter.calendarRange(month, month, "month"))
+            )
+            mean_img = ee.Image(
+                ee.Algorithms.If(filtered.size().gt(0), filtered.mean(), _empty)
+            )
+            val = mean_img.reduceRegion(
+                reducer=ee.Reducer.mean(),
+                geometry=aoi_geom,
+                scale=scale,
+                maxPixels=int(1e10),
+                bestEffort=True,
+            ).get("NDVI")
+            features.append(ee.Feature(None, {
+                "yyyymm": f"{year}-{month:02d}",
+                "value":  val,
+            }))
+        info = ee.FeatureCollection(features).getInfo() or {}
+        for f in info.get("features", []):
+            ym  = f["properties"]["yyyymm"]
+            val = f["properties"].get("value")
+            if val is not None:
+                records.append((pd.Timestamp(f"{ym}-01"), val))
 
-    monthly = ee.ImageCollection(ym_pairs.map(_monthly_mean))
-    s = _collection_to_series(monthly, aoi_geom, "NDVI", scale)
+    records.sort()
+    dates, values = zip(*records)
+    s = pd.Series(list(values), index=pd.to_datetime(dates), dtype=np.float64)
     s.name = "ndvi"
     return s
 
