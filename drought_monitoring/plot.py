@@ -39,14 +39,15 @@ except ImportError:
 
 
 CDI_CLASSES = [
-    (-np.inf, -2.0, "#6B0000", "Extreme drought"),
-    (-2.0,    -1.5, "#C0392B", "Severe drought"),
-    (-1.5,    -1.0, "#E67E22", "Moderate drought"),
-    (-1.0,    -0.5, "#F1C40F", "Mild drought"),
-    (-0.5,     0.5, "#F0F0F0", "Near normal"),
-    ( 0.5,     1.0, "#AED6F1", "Mild wet"),
-    ( 1.0,     1.5, "#2E86C1", "Moderately wet"),
-    ( 1.5,  np.inf, "#1A5276", "Very wet"),
+    # Multiplicative scale: 1.0 = normal, < 1.0 = drought, > 1.0 = wet
+    (0.0,   0.50, "#6B0000", "Extreme drought"),
+    (0.50,  0.65, "#C0392B", "Severe drought"),
+    (0.65,  0.80, "#E67E22", "Moderate drought"),
+    (0.80,  0.90, "#F1C40F", "Mild drought"),
+    (0.90,  1.10, "#F0F0F0", "Near normal"),
+    (1.10,  1.20, "#AED6F1", "Mild wet"),
+    (1.20,  1.30, "#2E86C1", "Moderately wet"),
+    (1.30,  np.inf, "#1A5276", "Very wet"),
 ]
 
 
@@ -67,8 +68,8 @@ def _build_cdi_cmap(n=512):
 
 CDI_CMAP = _build_cdi_cmap()
 
-def _cdi_norm(vmin=-3.0, vmax=3.0):
-    return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+def _cdi_norm(vmin=0.0, vmax=2.0):
+    return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=1.0, vmax=vmax)
 
 def _require_mpl():
     if not _HAS_MPL:
@@ -99,8 +100,8 @@ def plot_timeseries(
     figsize=(14, 10),
     show_components=True,
     show_severity_bar=True,
-    vmin=-3.5,
-    vmax=3.5,
+    vmin=0.0,
+    vmax=2.0,
 ):
     """
     Publication-quality CDI time-series figure.
@@ -184,13 +185,13 @@ def _draw_severity_bar(ax, cdi):
 def _draw_cdi_panel(ax, cdi, vmin, vmax):
     cdi = cdi.dropna()
     _climate_style(ax)
-    ax.axhline(0, color="#666", linewidth=0.9, zorder=2)
-    for v, ls in [(-1.0,":"),(-2.0,"--"),(1.0,":"),(2.0,"--")]:
-        col = "#B03A2E" if v < 0 else "#1F618D"
+    ax.axhline(1.0, color="#666", linewidth=0.9, zorder=2)
+    for v, ls in [(0.80,":"),(0.50,"--"),(1.20,":"),(1.30,"--")]:
+        col = "#B03A2E" if v < 1.0 else "#1F618D"
         ax.axhline(v, color=col, linewidth=0.75, linestyle=ls, alpha=0.55, zorder=2)
-    ax.fill_between(cdi.index, cdi, 0, where=(cdi<0),
+    ax.fill_between(cdi.index, cdi, 1.0, where=(cdi<1.0),
                     color="#C0392B", alpha=0.45, linewidth=0, zorder=3)
-    ax.fill_between(cdi.index, cdi, 0, where=(cdi>=0),
+    ax.fill_between(cdi.index, cdi, 1.0, where=(cdi>=1.0),
                     color="#2980B9", alpha=0.35, linewidth=0, zorder=3)
     ax.plot(cdi.index, cdi, color="#1A1A1A", linewidth=0.8, zorder=4)
     rm = cdi.rolling(12, center=True, min_periods=6).mean()
@@ -209,9 +210,9 @@ def _draw_cdi_panel(ax, cdi, vmin, vmax):
 def _draw_component_panel(ax, s, colour, label, vmin, vmax):
     s = s.dropna()
     _climate_style(ax)
-    ax.axhline(0, color="#999", linewidth=0.7)
-    ax.fill_between(s.index, s, 0, where=(s<0),  color=colour, alpha=0.30, linewidth=0)
-    ax.fill_between(s.index, s, 0, where=(s>=0), color=colour, alpha=0.12, linewidth=0)
+    ax.axhline(1.0, color="#999", linewidth=0.7)
+    ax.fill_between(s.index, s, 1.0, where=(s<1.0),  color=colour, alpha=0.30, linewidth=0)
+    ax.fill_between(s.index, s, 1.0, where=(s>=1.0), color=colour, alpha=0.12, linewidth=0)
     ax.plot(s.index, s, color=colour, linewidth=0.8)
     ax.set_ylim(vmin, vmax)
     ax.set_ylabel(label.split(" ")[0], fontsize=7.5)
@@ -233,7 +234,7 @@ def plot_seasonal_cycle(df, title="Seasonal Cycle of Drought Indices", figsize=(
         ax.fill_between(mu.index, mu-2*sd, mu+2*sd, color=colour, alpha=0.10, linewidth=0)
         ax.fill_between(mu.index, mu-sd,   mu+sd,   color=colour, alpha=0.22, linewidth=0)
         ax.plot(mu.index, mu, color=colour, linewidth=1.6, marker="o", markersize=3, zorder=4)
-        ax.axhline(0, color="#999", linewidth=0.7, linestyle="--")
+        ax.axhline(1.0, color="#999", linewidth=0.7, linestyle="--")
         ax.set_xticks(range(1,13))
         ax.set_xticklabels(month_labels, fontsize=7, rotation=45)
         ax.set_title(col, fontsize=9, fontweight="bold", color=colour)
@@ -258,21 +259,24 @@ def plot_anomaly_bars(df, column="CDI", freq="YE",
     freq   : 'YE' annual | 'QE' seasonal | 'ME' monthly.
     """
     _require_mpl()
+    # Normalise legacy aliases removed in pandas ≥ 2.2
+    _freq_map = {"Y": "YE", "A": "YE", "Q": "QE", "M": "ME"}
+    freq = _freq_map.get(freq.upper(), freq)
     rs = df[column].resample(freq).mean().dropna()
-    colours = ["#C0392B" if v < 0 else "#2980B9" for v in rs.values]
+    colours = ["#C0392B" if v < 1.0 else "#2980B9" for v in rs.values]
     fig, ax = plt.subplots(figsize=figsize, facecolor="white")
     _climate_style(ax)
     width = {"YE": 300, "QE": 60, "ME": 20}.get(freq, 50)
     ax.bar(rs.index, rs.values, width=width, color=colours, edgecolor="none", zorder=3)
-    ax.axhline(0,    color="#333", linewidth=0.9, zorder=4)
-    ax.axhline(-1.0, color="#E74C3C", linewidth=0.7, linestyle=":", alpha=0.7)
-    ax.axhline(-2.0, color="#922B21", linewidth=0.7, linestyle="--", alpha=0.8)
-    ax.axhline( 1.0, color="#2980B9", linewidth=0.7, linestyle=":", alpha=0.7)
-    ax.axhline( 2.0, color="#1A5276", linewidth=0.7, linestyle="--", alpha=0.8)
+    ax.axhline(1.0,  color="#333", linewidth=0.9, zorder=4)
+    ax.axhline(0.80, color="#E74C3C", linewidth=0.7, linestyle=":", alpha=0.7)
+    ax.axhline(0.50, color="#922B21", linewidth=0.7, linestyle="--", alpha=0.8)
+    ax.axhline(1.20, color="#2980B9", linewidth=0.7, linestyle=":", alpha=0.7)
+    ax.axhline(1.30, color="#1A5276", linewidth=0.7, linestyle="--", alpha=0.8)
     ax.set_ylabel(f"Mean {column}", fontsize=8)
     ax.set_title(title, fontsize=10, fontweight="bold", loc="left", pad=8, color="#111")
-    handles = [mpatches.Patch(color="#C0392B", label="Drought (<0)"),
-               mpatches.Patch(color="#2980B9", label="Wet (≥0)")]
+    handles = [mpatches.Patch(color="#C0392B", label="Drought (<1.0)"),
+               mpatches.Patch(color="#2980B9", label="Wet (≥1.0)")]
     ax.legend(handles=handles, fontsize=7, loc="upper right",
               frameon=True, framealpha=0.9, edgecolor="#CCC")
     fig.tight_layout()
