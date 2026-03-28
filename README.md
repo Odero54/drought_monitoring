@@ -1,121 +1,133 @@
-# drought-monitoring v0.1.0
+# drought-monitoring
 
-A **lightweight Python package** for computing the **Composite Drought Index (CDI)**
-over **20–30 year monitoring periods** using Google Earth Engine data,
-writing outputs as **Cloud Optimized GeoTIFFs**, and producing
-**publication-quality climate science visualisations**.
+A Python package for computing the **Composite Drought Index (CDI)** over
+20–30 year monitoring periods using Google Earth Engine, with in-memory
+dask-parallelised spatial computation, Cloud Optimized GeoTIFF export, and
+publication-quality climate science visualisations.
 
----
-
-## Package structure
-
-```
-drought_cdi/
-└── drought_monitoring/
-    └── core.py     CDI mathematics on pd.Series
-    └── spatial.py  pixel-wise computation on xr.DataArray
-    └── gee.py      GEE authentication + ERA5-Land / MODIS data fetching
-    └── io.py       Cloud Optimized GeoTIFF (COG) export and import
-    └── plot.py     publication-quality climate science figures
-└── tests/
-    └── test_core.py
-pyproject.toml
-README.md
-```
+[![PyPI version](https://img.shields.io/pypi/v/drought-monitoring)](https://pypi.org/project/drought-monitoring/)
+[![Python](https://img.shields.io/pypi/pyversions/drought-monitoring)](https://pypi.org/project/drought-monitoring/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
 ## Installation
 
 ```bash
-# Core only (numpy, pandas, xarray)
-uv pip install -e .
+# pip
+pip install drought-monitoring
 
-# Full workflow (GEE + COG + plots)
-uv pip install -e ".[all]"
+# uv
+uv add drought-monitoring
+
+# with all optional dependencies (GEE + COG + plots)
+pip install "drought-monitoring[all]"
 ```
+
+Optional extras:
+
+| Extra | Installs | Use for |
+|-------|----------|---------|
+| `gee` | `earthengine-api` | fetching GEE data |
+| `cog` | `rasterio`, `rioxarray` | COG export / import |
+| `plot` | `matplotlib` | visualisation |
+| `all` | all of the above | full workflow |
 
 ---
 
-## Monitoring period
+## Package structure
 
-| Default | Minimum | Maximum |
-|---------|---------|---------|
-| 20 years | 20 years | 30 years |
-
-An error is raised if the requested period is outside 20–30 years.
+```
+drought_monitoring/
+├── core.py      CDI mathematics on pd.Series
+├── spatial.py   pixel-wise computation on xr.DataArray (dask-parallelised)
+├── gee.py       GEE authentication + ERA5-Land / MODIS xee cube fetching
+├── io.py        Cloud Optimized GeoTIFF (COG) export and import
+└── plot.py      publication-quality climate science figures
+tests/
+└── test_core.py
+pyproject.toml
+README.md
+```
 
 ---
 
 ## Typical Jupyter notebook workflow
 
+### 1. Authenticate GEE
+
 ```python
-# ── 1. Authenticate GEE ──────────────────────────────────────────────────────
-from drought_cdi.gee import authenticate
+from drought_monitoring.gee import authenticate
 authenticate(project="my-gee-project")   # opens browser on first use
+```
 
-# ── 2. Define your study area ────────────────────────────────────────────────
+### 2. Generate yearly drought maps (full in-memory pipeline)
+
+```python
+from drought_monitoring.gee import yearly_drought_maps
+
 aoi = [38.0, 3.5, 42.5, 7.0]   # [lon_min, lat_min, lon_max, lat_max]
-                                 # Borena region, Southern Ethiopia
+                                  # Borena region, Southern Ethiopia
 
-# ── 3. Fetch 20-year monthly time series ────────────────────────────────────
-from drought_cdi.gee import fetch_era5_precip, fetch_era5_temp, fetch_modis_ndvi
+# Streams ERA5 + MODIS via xee, computes CDI pixel-wise with dask,
+# resamples to annual means — nothing written to disk
+ds = yearly_drought_maps(aoi, start_year=2000, end_year=2020)
+# xr.Dataset with variables: PDI, TDI, VDI, CDI
+# dims: (year, latitude, longitude)
+```
 
-precip = fetch_era5_precip(aoi, start_year=2000, end_year=2020)  # mm/month
-temp   = fetch_era5_temp(aoi,   start_year=2000, end_year=2020)  # °C
-ndvi   = fetch_modis_ndvi(aoi,  start_year=2000, end_year=2020)  # [-1,1]
+### 3. Plot all years
 
-# ── 4. Compute CDI ───────────────────────────────────────────────────────────
-from drought_cdi import compute_all
+```python
+ds["CDI"].plot(col="time", col_wrap=4, cmap="RdBu", robust=True, figsize=(20, 14))
+```
+
+### 4. Export to Cloud Optimized GeoTIFFs
+
+```python
+from drought_monitoring.io import cdi_stack_to_cog
+
+paths = cdi_stack_to_cog(ds, output_dir="outputs/", prefix="Borena_2000_2020")
+# outputs/Borena_2000_2020_PDI.tif
+# outputs/Borena_2000_2020_TDI.tif
+# outputs/Borena_2000_2020_VDI.tif
+# outputs/Borena_2000_2020_CDI.tif
+```
+
+### 5. Visualise COGs interactively
+
+```python
+import leafmap
+
+m = leafmap.Map(center=[5.0, 40.0], zoom=6)
+m.add_cog_layer("outputs/Borena_2000_2020_CDI.tif", name="CDI")
+m
+```
+
+---
+
+## Area-averaged time series workflow
+
+For a single-pixel or spatially-averaged CDI time series:
+
+```python
+from drought_monitoring.gee import fetch_era5_precip, fetch_era5_temp, fetch_modis_ndvi
+from drought_monitoring import compute_all
+from drought_monitoring.plot import plot_timeseries, plot_anomaly_bars
+
+precip = fetch_era5_precip(aoi, start_year=2000, end_year=2020)
+temp   = fetch_era5_temp(aoi,   start_year=2000, end_year=2020)
+ndvi   = fetch_modis_ndvi(aoi,  start_year=2000, end_year=2020)
 
 df = compute_all(precip, temp, ndvi, window=3)
-# Returns pd.DataFrame with columns: PDI, TDI, VDI, CDI
+# pd.DataFrame with columns: PDI, TDI, VDI, CDI
 
-# ── 5. Visualise ─────────────────────────────────────────────────────────────
-from drought_cdi.plot import plot_timeseries, plot_anomaly_bars, plot_seasonal_cycle
+fig = plot_timeseries(df, title="CDI — Borena Region",
+                      subtitle="ERA5-Land + MODIS MOD13A3  |  2000–2020")
+fig.savefig("CDI_timeseries.png", dpi=300, bbox_inches="tight")
 
-fig = plot_timeseries(
-    df,
-    title="Composite Drought Index — Borena Region",
-    subtitle="ERA5-Land + MODIS MOD09GQ  |  2000–2020",
-)
-fig.savefig("CDI_Borena_timeseries.png", dpi=300, bbox_inches="tight")
-
-fig2 = plot_anomaly_bars(df, freq="Y", title="Annual Mean CDI Anomaly")
-fig2.savefig("CDI_Borena_annual.png", dpi=300, bbox_inches="tight")
-
-fig3 = plot_seasonal_cycle(df)
-fig3.savefig("CDI_Borena_seasonal.png", dpi=300, bbox_inches="tight")
-
-# ── 6. Export Cloud Optimized GeoTIFFs ──────────────────────────────────────
-# Option A: from spatial xr.Dataset (pixel-wise)
-from drought_cdi.gee import fetch_era5_precip_cube, fetch_era5_temp_cube
-from drought_cdi.spatial import spatial_cdi
-from drought_cdi.io import cdi_stack_to_cog
-
-precip_cube = fetch_era5_precip_cube(aoi, start_year=2000, end_year=2020)
-temp_cube   = fetch_era5_temp_cube(aoi,   start_year=2000, end_year=2020)
-# (fetch ndvi cube similarly, or resample your time series)
-
-ds = spatial_cdi(precip_cube, temp_cube, ndvi_cube)
-paths = cdi_stack_to_cog(ds, output_dir="outputs/", prefix="Borena_2000_2020")
-# → outputs/Borena_2000_2020_PDI.tif
-# → outputs/Borena_2000_2020_TDI.tif
-# → outputs/Borena_2000_2020_VDI.tif
-# → outputs/Borena_2000_2020_CDI.tif
-
-# Option B: broadcast area-averaged time series onto a spatial template
-from drought_cdi.io import series_to_cog
-
-paths = series_to_cog(df, spatial_ds=precip_cube, output_dir="outputs/",
-                      prefix="Borena_2000_2020")
-
-# ── 7. Visualise COGs in leafmap ─────────────────────────────────────────────
-import leafmap
-m = leafmap.Map(center=[5.0, 40.0], zoom=6)
-m.add_raster(str(paths["CDI"]), colormap="RdBu", vmin=-3, vmax=3,
-             layer_name="CDI 2020-12")
-m
+fig2 = plot_anomaly_bars(df, title="Annual Mean CDI Anomaly")
+fig2.savefig("CDI_annual.png", dpi=300, bbox_inches="tight")
 ```
 
 ---
@@ -126,25 +138,29 @@ m
 |----------|---------------|------|-------|
 | Precipitation | `ECMWF/ERA5_LAND/MONTHLY_AGGR` | `total_precipitation_sum` | mm month⁻¹ |
 | Temperature | `ECMWF/ERA5_LAND/MONTHLY_AGGR` | `temperature_2m` | °C |
-| NDVI | `MODIS/061/MOD09GQ` | derived from b01+b02 | − |
+| NDVI | `MODIS/061/MOD13A3` | `NDVI` | [−1, 1] |
 
 ---
 
 ## CDI formula
 
+Each sub-index follows Burchard-Levine et al. (2024):
+
 ```
-DI = (IP − LTM) / LTM  +  run / LTM_run
-CDI = (PDI + TDI + VDI) / 3   [default equal weights]
+DI = (μ_IP / μ_LTM) × sqrt(RL_IP / RL_LTM)
+
+CDI = 0.50 × PDI + 0.25 × TDI + 0.25 × VDI
 ```
 
 | Symbol | Meaning |
 |--------|---------|
-| IP | Interest-period value (3-month trailing rolling mean) |
-| LTM | Long-term mean for that calendar month |
-| run | Consecutive months where the anomaly condition is active |
-| LTM_run | Long-term mean of run lengths |
+| `μ_IP` | Trailing rolling mean over the interest period (default 3 months) |
+| `μ_LTM` | Long-term mean of `μ_IP` for that calendar month |
+| `RL_IP` | Count of months inside the IP where the anomaly condition holds |
+| `RL_LTM` | Long-term mean of `RL_IP` for that calendar month |
 
-PDI & VDI use **deficit** streaks (IP < LTM). TDI uses **excess** streaks (IP > LTM).
+PDI & VDI use **deficit** streaks (`raw < monthly LTM`).
+TDI uses **excess** streaks (`raw > monthly LTM`).
 
 ---
 
@@ -152,22 +168,34 @@ PDI & VDI use **deficit** streaks (IP < LTM). TDI uses **excess** streaks (IP > 
 
 | CDI value | Class |
 |-----------|-------|
-| < −2.0 | Extreme drought |
-| −2.0 – −1.5 | Severe drought |
-| −1.5 – −1.0 | Moderate drought |
-| −1.0 – −0.5 | Mild drought |
-| −0.5 – +0.5 | Near normal |
-| +0.5 – +1.0 | Mild wet |
-| +1.0 – +1.5 | Moderately wet |
-| > +1.5 | Very wet |
+| < 0.50 | Extreme drought |
+| 0.50 – 0.65 | Severe drought |
+| 0.65 – 0.80 | Moderate drought |
+| 0.80 – 0.90 | Mild drought |
+| 0.90 – 1.10 | Near normal |
+| 1.10 – 1.20 | Mild wet |
+| 1.20 – 1.30 | Moderately wet |
+| > 1.30 | Very wet |
+
+Values < 1 indicate drought; values ≈ 1 are near-normal; values > 1 are wetter than normal.
+
+---
+
+## Monitoring period
+
+| Default | Minimum | Maximum |
+|---------|---------|---------|
+| 20 years | 20 years | 30 years |
+
+An error is raised if the requested period is outside this range.
 
 ---
 
 ## COG structure
 
-Each output GeoTIFF contains **one band per month**.
-Band descriptions are ISO-8601 date strings (`YYYY-MM`), so every file
-is self-documenting and can be range-requested from cloud storage
+Each output GeoTIFF contains **one band per timestep**.
+Band descriptions are ISO-8601 date strings (`YYYY-MM` or `YYYY`), so every
+file is self-documenting and can be range-requested from cloud storage
 (S3, GCS, Azure Blob) by leafmap, QGIS, or any GDAL tool.
 
 ---
@@ -175,7 +203,7 @@ is self-documenting and can be range-requested from cloud storage
 ## Running tests
 
 ```bash
-pytest drought_cdi/tests/ -v
+pytest tests/ -v
 ```
 
 ---
