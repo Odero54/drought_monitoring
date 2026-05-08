@@ -1,6 +1,6 @@
 [project]
 name = "drought-monitoring"
-version = "0.1.5"
+version = "0.1.6"
 description = "Composite Drought Index via GEE + COG output + climate-science plots"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,6 +31,9 @@ dependencies = [
     "xee>=0.0.22",
 ]
 
+[project.scripts]
+drought-mcp = "drought_monitoring.mcp_server:run"
+
 [project.urls]
 Homepage = "https://github.com/geoges/drought-monitoring"
 "Bug Tracker" = "https://github.com/geoges/drought-monitoring/issues"
@@ -39,6 +42,7 @@ Homepage = "https://github.com/geoges/drought-monitoring"
 gee     = ["earthengine-api>=0.1.370"]
 cog     = ["rasterio>=1.2", "rioxarray>=0.9"]
 plot    = ["matplotlib>=3.5"]
+mcp     = ["mcp>=1.0"]
 all     = ["earthengine-api>=0.1.370","rasterio>=1.2","rioxarray>=0.9","matplotlib>=3.5"]
 dev     = ["pytest>=7","pytest-cov","matplotlib>=3.5","rasterio>=1.2","rioxarray>=0.9"]
 
