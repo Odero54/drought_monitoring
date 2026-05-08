@@ -54,6 +54,8 @@ README.md
 
 ## Typical Jupyter notebook workflow
 
+See [workshop/drought_monitoring_TUK_workshop.ipynb](workshop/drought_monitoring_TUK_workshop.ipynb) for the full worked example (Turkana County, Kenya, 2000–2025).
+
 ### 1. Authenticate GEE
 
 ```python
@@ -61,47 +63,125 @@ from drought_monitoring.gee import authenticate
 authenticate(project="my-gee-project")   # opens browser on first use
 ```
 
-### 2. Generate yearly drought maps (full in-memory pipeline)
+### 2. Define your Area of Interest
+
+```python
+# Format: [lon_min, lat_min, lon_max, lat_max]
+aoi = [34.5, 1.5, 36.5, 5.5]   # Turkana County, Kenya
+```
+
+### 3. Fetch 25 years of monthly data
+
+```python
+from drought_monitoring.gee import fetch_era5_precip, fetch_era5_temp, fetch_modis_ndvi
+
+precip = fetch_era5_precip(aoi, start_year=2000, end_year=2025)
+temp   = fetch_era5_temp(aoi,   start_year=2000, end_year=2025)
+ndvi   = fetch_modis_ndvi(aoi,  start_year=2000, end_year=2025)
+# Each returns a pd.Series with a monthly DatetimeIndex (312 months)
+```
+
+### 4. Compute the full CDI
+
+```python
+from drought_monitoring import compute_all
+
+df = compute_all(precip, temp, ndvi, window=3, weights=(0.50, 0.25, 0.25))
+# pd.DataFrame with columns: PDI, TDI, VDI, CDI
+```
+
+### 5. Classify drought severity
+
+```python
+from drought_monitoring.plot import classify_cdi
+
+df["severity"] = classify_cdi(df["CDI"])
+print(df["severity"].value_counts(normalize=True).mul(100).round(1))
+```
+
+### 6. Publication-quality plots
+
+```python
+from drought_monitoring.plot import plot_timeseries, plot_anomaly_bars, plot_seasonal_cycle
+import matplotlib.pyplot as plt
+
+fig = plot_timeseries(
+    df,
+    title    = "Composite Drought Index — Turkana County, Kenya",
+    subtitle = "ERA5-Land + MODIS MOD13A3  |  2000–2025",
+    show_components   = True,
+    show_severity_bar = True,
+)
+fig.savefig("CDI_timeseries_Turkana.png", dpi=150, bbox_inches="tight")
+
+fig2 = plot_anomaly_bars(df, column="CDI", freq="Y",
+                         title="Annual Mean CDI Anomaly — Turkana County")
+fig2.savefig("CDI_annual_Turkana.png", dpi=150, bbox_inches="tight")
+
+fig3 = plot_seasonal_cycle(df, title="Seasonal Cycle — Turkana 2000–2025")
+fig3.savefig("CDI_seasonal_Turkana.png", dpi=150, bbox_inches="tight")
+```
+
+### 7. Generate annual spatial CDI maps
 
 ```python
 from drought_monitoring.gee import yearly_drought_maps
 
-aoi = [38.0, 3.5, 42.5, 7.0]   # [lon_min, lat_min, lon_max, lat_max]
-                                  # Borena region, Southern Ethiopia
-
 # Streams ERA5 + MODIS via xee, computes CDI pixel-wise with dask,
 # resamples to annual means — nothing written to disk
-ds = yearly_drought_maps(aoi, start_year=2000, end_year=2020)
-# xr.Dataset with variables: PDI, TDI, VDI, CDI
-# dims: (year, latitude, longitude)
+ds = yearly_drought_maps(aoi, start_year=2000, end_year=2025)
+# xr.Dataset with variables: PDI, TDI, VDI, CDI  |  dims: (time, lat, lon)
+
+ds["CDI"].plot(col="time", col_wrap=4, cmap="RdBu", robust=True, figsize=(18, 14))
 ```
 
-### 3. Plot all years
+### 8. Export to Cloud Optimized GeoTIFFs
 
 ```python
-ds["CDI"].plot(col="time", col_wrap=4, cmap="RdBu", robust=True, figsize=(20, 14))
-```
-
-### 4. Export to Cloud Optimized GeoTIFFs
-
-```python
+import os
 from drought_monitoring.io import cdi_stack_to_cog
 
-paths = cdi_stack_to_cog(ds, output_dir="outputs/", prefix="Borena_2000_2020")
-# outputs/Borena_2000_2020_PDI.tif
-# outputs/Borena_2000_2020_TDI.tif
-# outputs/Borena_2000_2020_VDI.tif
-# outputs/Borena_2000_2020_CDI.tif
+os.makedirs("outputs", exist_ok=True)
+paths = cdi_stack_to_cog(ds, output_dir="outputs/", prefix="Turkana_2000_2025")
+# outputs/Turkana_2000_2025_PDI.tif  (26 bands, one per year)
+# outputs/Turkana_2000_2025_TDI.tif
+# outputs/Turkana_2000_2025_VDI.tif
+# outputs/Turkana_2000_2025_CDI.tif
 ```
 
-### 5. Visualise COGs interactively
+### 9. Visualise COGs interactively
 
 ```python
 import leafmap
 
-m = leafmap.Map(center=[5.0, 40.0], zoom=6)
-m.add_cog_layer("outputs/Borena_2000_2020_CDI.tif", name="CDI")
+m = leafmap.Map(center=[3.5, 35.5], zoom=7)
+m.add_cog_layer("outputs/Turkana_2000_2025_CDI.tif", name="CDI")
 m
+```
+
+### 10. Run a 6-month drought forecast
+
+```python
+from drought_monitoring.forecast import forecast_all_statistical
+from drought_monitoring.plot import plot_forecast
+
+fc = forecast_all_statistical(
+    precip, temp, ndvi,
+    n_months = 6,
+    weights  = (0.50, 0.25, 0.25),
+    ci_level = 0.90,
+)
+# pd.DataFrame with columns: PDI, TDI, VDI, CDI, CDI_lower, CDI_upper, lead
+
+fig_fc = plot_forecast(
+    history   = df,
+    forecast  = fc,
+    n_history = 36,
+    title     = "Turkana CDI — 6-month Drought Outlook",
+    subtitle  = "STL + SARIMA statistical forecast  |  90% confidence band",
+    show_components = True,
+)
+fig_fc.savefig("CDI_forecast_Turkana.png", dpi=150, bbox_inches="tight")
 ```
 
 ---

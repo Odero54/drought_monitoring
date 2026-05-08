@@ -12,4 +12,9 @@ wheels/
 .vscode/
 .python-version
 notebooks/
-workshop/
+workshop/*.jpeg
+workshop/*.png
+workshop/outputs/
+workshop/.ipynb_checkpoints/
+
+.virtual_documents/
