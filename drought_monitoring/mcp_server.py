@@ -24,9 +24,7 @@ mcp = FastMCP(
     ),
 )
 
-# ---------------------------------------------------------------------------
 # In-memory cache: avoid re-fetching the same AOI/year range twice per session
-# ---------------------------------------------------------------------------
 _DATA_CACHE: dict[tuple, tuple] = {}  # key → (precip, temp, ndvi)
 _MAP_CACHE: dict[tuple, object] = {}  # key → xr.Dataset of annual maps
 
@@ -62,10 +60,7 @@ def _get_or_build_maps(aoi: list[float], start_year: int, end_year: int):
     return _MAP_CACHE[key]
 
 
-# ---------------------------------------------------------------------------
 # Tools
-# ---------------------------------------------------------------------------
-
 @mcp.tool()
 def authenticate_gee(project: str) -> str:
     """
@@ -81,7 +76,6 @@ def authenticate_gee(project: str) -> str:
     from drought_monitoring.gee import authenticate
     authenticate(project=project)
     return f"GEE authenticated successfully with project '{project}'."
-
 
 @mcp.tool()
 def compute_drought_indices(
@@ -134,7 +128,6 @@ def compute_drought_indices(
     ]
     return "\n".join(lines)
 
-
 @mcp.tool()
 def get_worst_drought_periods(
     aoi: list[float],
@@ -179,7 +172,6 @@ def get_worst_drought_periods(
     ]
     return "\n".join(lines)
 
-
 @mcp.tool()
 def forecast_drought(
     aoi: list[float],
@@ -222,7 +214,6 @@ def forecast_drought(
         .to_string(),
     ]
     return "\n".join(lines)
-
 
 @mcp.tool()
 def get_annual_spatial_summary(
@@ -340,13 +331,8 @@ def forecast_vdi_from_ndvi(
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 def run() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     run()
