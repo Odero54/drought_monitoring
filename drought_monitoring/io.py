@@ -171,7 +171,7 @@ def to_cog(
     n_bands = len(times)
 
     profile = _cog_profile(n_bands, height, width, transform, crs, nodata, dtype)
-    data = da.values.astype(np.float32)
+    data = da.transpose(time_dim, lat_dim, lon_dim).values.astype(np.float32)
     if data.ndim == 2:                    # single time-step
         data = data[np.newaxis, :, :]
     if lats[0] < lats[-1]:               # bottom-up → flip to top-down

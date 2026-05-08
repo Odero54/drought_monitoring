@@ -350,7 +350,7 @@ def plot_map_snapshot(da, date=None, title="", figsize=(8, 6),
     lon_dim = next((d for d in da.dims if d in ("longitude","lon","x")), da.dims[1])
     lats = da[lat_dim].values
     lons = da[lon_dim].values
-    arr  = np.asarray(da, dtype=float)
+    arr  = np.asarray(da.transpose(lat_dim, lon_dim), dtype=float)
 
     fig, ax = plt.subplots(figsize=figsize, facecolor="white")
     im = ax.pcolormesh(lons, lats, arr,
@@ -369,5 +369,103 @@ def plot_map_snapshot(da, date=None, title="", figsize=(8, 6),
     ax.set_ylabel("Latitude (°)",  fontsize=8)
     ax.set_title(title, fontsize=10, fontweight="bold", loc="left", pad=8, color="#111")
     _climate_style(ax)
+    fig.tight_layout()
+    return fig
+
+
+def plot_forecast(
+    history:         "pd.DataFrame",
+    forecast:        "pd.DataFrame",
+    n_history:       int   = 36,
+    title:           str   = "CDI — Drought Forecast",
+    subtitle:        str   = "",
+    show_components: bool  = True,
+    vmin:            float = 0.0,
+    vmax:            float = 2.0,
+    figsize:         tuple = (14, 10),
+) -> "plt.Figure":
+    """
+    Plot historical CDI + 6-month statistical forecast with confidence band.
+
+    Parameters
+    ----------
+    history         : pd.DataFrame  — output of ``compute_all()``; needs 'CDI';
+                      'PDI','TDI','VDI' used when show_components=True.
+    forecast        : pd.DataFrame  — output of ``forecast_all_statistical()``;
+                      needs 'CDI','CDI_lower','CDI_upper'; 'PDI','TDI','VDI' optional.
+    n_history       : int   — historical months to show left of the split (default 36).
+    title/subtitle  : str   — figure title lines.
+    show_components : bool  — add PDI/TDI/VDI sub-panels (default True).
+    vmin/vmax       : float — y-axis limits (default 0.0/2.0).
+    figsize         : tuple — figure dimensions.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    _require_mpl()
+
+    hist = history.iloc[-n_history:].copy()
+    has_comp = (
+        show_components
+        and all(c in hist.columns     for c in ("PDI", "TDI", "VDI"))
+        and all(c in forecast.columns for c in ("PDI", "TDI", "VDI"))
+    )
+
+    heights = [3.5] + ([1.4] * 3 if has_comp else [])
+    fig = plt.figure(figsize=figsize, facecolor="white")
+    gs  = gridspec.GridSpec(len(heights), 1, height_ratios=heights,
+                            hspace=0.55, figure=fig)
+
+    # ── CDI panel ────────────────────────────────────────────────────────────
+    ax_cdi = fig.add_subplot(gs[0])
+    _draw_cdi_panel(ax_cdi, hist["CDI"], vmin, vmax)
+
+    ax_cdi.plot(forecast.index, forecast["CDI"],
+                color="#E67E22", linewidth=1.8, linestyle="--",
+                zorder=6, label="Forecast")
+    ax_cdi.fill_between(
+        forecast.index,
+        forecast["CDI_lower"], forecast["CDI_upper"],
+        color="#E67E22", alpha=0.20, linewidth=0, zorder=5,
+    )
+
+    split = hist.index[-1]
+    ax_cdi.axvline(split, color="#555", linewidth=1.0, linestyle="--",
+                   alpha=0.6, zorder=7)
+    ax_cdi.text(split, vmax * 0.97, "  Forecast →",
+                fontsize=7, va="top", color="#555")
+
+    full_title = title + (f"\n{subtitle}" if subtitle else "")
+    ax_cdi.set_title(full_title, fontsize=10, fontweight="bold",
+                     pad=10, loc="left", color="#111111")
+
+    fc_handles = [
+        Line2D([0], [0], color="#E67E22", linewidth=1.8,
+               linestyle="--", label="Forecast"),
+        plt.Rectangle((0, 0), 1, 1, fc="#E67E22", alpha=0.25,
+                       ec="none", label="90% CI"),
+    ]
+    existing_handles, _ = ax_cdi.get_legend_handles_labels()
+    ax_cdi.legend(handles=existing_handles + fc_handles,
+                  loc="upper left", fontsize=6.5,
+                  frameon=True, framealpha=0.85, edgecolor="#CCC")
+
+    # ── Component sub-panels ─────────────────────────────────────────────────
+    if has_comp:
+        cfgs = [
+            ("PDI", "#1A5276", "Precipitation Drought Index (PDI)"),
+            ("TDI", "#922B21", "Temperature Drought Index (TDI)"),
+            ("VDI", "#1E8449", "Vegetation Drought Index (VDI)"),
+        ]
+        for row, (col, colour, label) in enumerate(cfgs, start=1):
+            ax = fig.add_subplot(gs[row], sharex=ax_cdi)
+            _draw_component_panel(ax, hist[col], colour, label, vmin, vmax)
+            ax.plot(forecast.index, forecast[col],
+                    color=colour, linewidth=1.4, linestyle="--",
+                    alpha=0.85, zorder=5)
+            ax.axvline(split, color="#555", linewidth=0.8,
+                       linestyle="--", alpha=0.5, zorder=6)
+
     fig.tight_layout()
     return fig
