@@ -1,6 +1,6 @@
 [project]
 name = "drought-monitoring"
-version = "0.1.4"
+version = "0.1.5"
 description = "Composite Drought Index via GEE + COG output + climate-science plots"
 readme = "README.md"
 license = { text = "MIT" }
